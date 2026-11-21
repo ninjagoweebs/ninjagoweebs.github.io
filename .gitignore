@@ -1,7 +1,8 @@
 # Bundler cache
 .bundle
 vendor
-Gemfile.lock
+# Commit Gemfile.lock so local builds and GitHub Actions use the same gem versions.
+# Gemfile.lock
 
 # Jekyll cache
 .jekyll-cache
