@@ -4,6 +4,11 @@ This guide explains how to run, edit, and publish this blog. The site uses
 [Jekyll](https://jekyllrb.com/) with the [Chirpy](https://github.com/cotes2020/jekyll-theme-chirpy)
 theme and deploys to GitHub Pages.
 
+> For content strategy, writeup structure, educational writing, formatting,
+> SEO, and publishing checklists, see
+> [BLOG-GUIDE.md](BLOG-GUIDE.md).
+> Ready-to-copy post templates are in [templates/](templates/).
+
 ---
 
 ## 1. Run the site locally

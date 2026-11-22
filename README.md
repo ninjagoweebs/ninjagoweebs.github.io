@@ -40,13 +40,15 @@ The repository must be named `ninjagoweebs.github.io` to serve the site at
 
 ## Documentation
 
-See [docs/GUIDE.md](docs/GUIDE.md) for:
-
-- creating and formatting posts,
-- changing the About page,
-- changing favicons, avatars, and social icons,
-- enabling comments,
-- deployment and troubleshooting.
+- [docs/BLOG-GUIDE.md](docs/BLOG-GUIDE.md) — full guide to planning, writing,
+  formatting, publishing, and growing a great writeup/education blog.
+- [docs/GUIDE.md](docs/GUIDE.md) — technical setup and site customization:
+  creating posts, changing the About page, favicons, avatars, social icons,
+  comments, deployment, and troubleshooting.
+- [docs/templates/writeup.md](docs/templates/writeup.md) — copy-paste template
+  for CTF and lab writeups.
+- [docs/templates/tutorial.md](docs/templates/tutorial.md) — copy-paste template
+  for educational posts and tutorials.
 
 ## Project layout
 
