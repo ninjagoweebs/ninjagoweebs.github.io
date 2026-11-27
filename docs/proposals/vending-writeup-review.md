@@ -111,8 +111,24 @@ Only publish the actual address if it is safe to do so.
 For example:
 
 - test the format string leak more systematically,
-- confirm whether the leak is stable enough for a GOT overwrite,
 - compare the ret2win path with a libc-based approach.
+
+### GOT overwrite check (done)
+
+The GOT overwrite question is now tested and documented in the post under
+`## GOT overwrite test`. The short result:
+
+- Partial RELRO leaves `.got.plt` writable.
+- `strdup@got` is at `0x404050`.
+- The note bytes map to printf arguments starting at argument 6.
+- A `%hn` payload can overwrite `strdup@got` with `maintenance_hatch`
+  (`0x4011c6`).
+- It works locally and prints `TryHards{F4K3}` from the fake local flag file.
+- A full 8-byte write is used so it also works after `strdup` has already been
+  resolved.
+- ret2win is still the simpler exploit.
+
+The working script is attached as `solve_got.py`.
 
 ### 6. Add a diagram
 

