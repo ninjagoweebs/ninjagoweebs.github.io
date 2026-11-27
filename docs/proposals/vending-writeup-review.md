@@ -20,41 +20,28 @@ That is a strong base. The main problem was presentation, not content.
 
 ## What was changed for the published post
 
-1. **Added a challenge overview table** so readers can see the platform, binary,
-   protections, and key bug before the details.
-2. **Added a short TL;DR** for readers who want the solution quickly.
-3. **Split the writeup into clear stages**:
-   - hidden win function,
-   - protections,
-   - program behavior,
-   - format string lead,
-   - source analysis,
-   - stack overflow,
-   - debugging,
-   - offset,
-   - flag.
-4. **Converted raw output into fenced code blocks** with `text`, `c`, and shell
-   languages.
-5. **Collapsed the long stack dumps** with `<details>` so the page stays
-   readable.
-6. **Kept the important crash lines visible** (RIP, RBP, backtrace) before the
-   collapsed full dump.
-7. **Added a payload layout diagram**:
+The original wording was kept as-is. Only presentation and paths were changed.
 
-   ```text
-   [ 168 bytes of padding ] [ address of maintenance_hatch() ]
-   ```
-
-8. **Attached the full source and disassembly** instead of pasting 16 KB of
+1. **Converted the `'''` blocks into fenced code blocks** with `c`, `text`, and
+   shell languages so the browser renders them cleanly.
+2. **Added section headings** to break the notes into readable parts without
+   rewriting the explanations.
+3. **Preserved the original prose**, including the casual notes, typos, and
+   debugging commentary.
+4. **Collapsed the long stack dump and crash output** with `<details>` so the
+   page is easier to scroll.
+5. **Changed the path** `folder-kuwin` to `ctf` in the post and in
+   `NOTES.md`.
+6. **Attached the full source and disassembly** instead of pasting 16 KB of
    assembly into the post.
-9. **Added a “Lessons learned” section** so the post ends with transferable
-   takeaways.
-10. **Changed the path** `folder-kuwin` to `ctf` in the post and in
-    `NOTES.md`.
-11. **Lightly copyedited** obvious typos and unclear sentences without changing
-    the technical findings.
+7. **Added an Attachments section** with links to:
+   - `vending.c`
+   - `text_section.txt`
 
-## Suggested structure for future writeups
+## Suggested structure for a future revision
+
+The current post intentionally keeps the original flow. If you want to make a
+more polished version later, this structure works well:
 
 ```text
 Challenge overview
@@ -76,39 +63,50 @@ Lessons learned
 Attachments / references
 ```
 
-## Optional improvements for this post
+## Optional improvements
 
-These are not required, but would make it even stronger:
+These are not in the current post because you asked to keep the original text.
+They are proposals for a later version.
 
-### 1. Add a short “root cause” callout
+### 1. Add a short challenge overview table
 
-Right after the source analysis:
+```markdown
+| Field | Value |
+| --- | --- |
+| Platform | TryHards |
+| Category | Pwn |
+| Binary | vending |
+| Protections | Partial RELRO, No canary, NX enabled, No PIE |
+| Key bug | Stack buffer overflow |
+```
 
+### 2. Add a TL;DR
+
+```markdown
+- `maintenance_hatch()` prints the flag.
+- `read()` writes 256 bytes into a 64-byte note buffer.
+- No canary, offset to RIP is 168.
+- Redirect execution to `maintenance_hatch()`.
+```
+
+### 3. Add a root-cause callout
+
+```markdown
 > The root cause is `read(STDIN_FILENO, note, 256)` writing up to 256 bytes into
 > a 64-byte stack buffer. With no canary, the saved return address is reachable.
 {: .prompt-info }
-
-### 2. Add a “tools used” line
-
-```text
-checksec, pwndbg, cyclic, pwntools
 ```
 
-This helps readers reproduce the setup.
-
-### 3. Explain the payload construction
-
-Even without publishing the full solver, a short explanation helps:
+### 4. Explain the payload construction
 
 ```python
 payload = b"A" * 168
 payload += p64(win_address)
 ```
 
-Only publish the actual address if it is safe to do so; the notes do not include
-it, so the post currently describes the layout instead.
+Only publish the actual address if it is safe to do so.
 
-### 4. Add a “what I would try next” note
+### 5. Add a “what I would try next” note
 
 For example:
 
@@ -116,11 +114,7 @@ For example:
 - confirm whether the leak is stable enough for a GOT overwrite,
 - compare the ret2win path with a libc-based approach.
 
-This turns a dead end into a learning point.
-
-### 5. Add one diagram
-
-A simple Mermaid diagram would make the flow obvious:
+### 6. Add a diagram
 
 ```mermaid
 flowchart LR
@@ -131,12 +125,11 @@ flowchart LR
   E --> F[Flag]
 ```
 
-### 6. Add references
+### 7. Add a “Lessons learned” section
 
-- pwndbg documentation
-- pwntools documentation
-- a good explanation of ret2win
-- the TryHards challenge page, if public
+- No PIE plus no canary is a strong hint toward a return-address overwrite.
+- A format string can be a useful lead, but it is not always the final bug.
+- Hidden win functions make ret2win simple when PIE is disabled.
 
 ## What not to change
 
@@ -145,9 +138,11 @@ flowchart LR
   forbids it.
 - Do not add screenshots of code; text is better.
 - Do not remove the failed format string path. It is part of the learning story.
+- Keep the original wording in the main post unless you deliberately want a
+  polished rewrite.
 
 ## Bottom line
 
-The post now reads like a walkthrough rather than a scratchpad. The next step in
-quality would be a short root-cause callout and a payload-construction paragraph,
-not more raw output.
+The post now matches the original notes closely, with cleaner formatting and
+attachments. The next step in quality would be an optional polished version with
+a short overview, root-cause callout, and payload explanation.
